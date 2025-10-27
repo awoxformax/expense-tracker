@@ -1,0 +1,196 @@
+import { Category, UserType } from "../types/profile";
+
+export const CATEGORY_PRESETS: Record<UserType, Category[]> = {
+  student: [
+    {
+      id: "student-daily-food",
+      name: "Qida ve içkilər",
+      description: "Yeməkxana, fast food, qəhvə, su",
+      group: "daily",
+    },
+    {
+      id: "student-daily-transport",
+      name: "Nəqliyyat",
+      description: "Avtobus, metro, taksi",
+      group: "daily",
+    },
+    {
+      id: "student-daily-snacks",
+      name: "Qəlyanaltılar",
+      description: "Su, Qazlı içkilər",
+      group: "daily",
+    },
+    {
+      id: "student-daily-materials",
+      name: "Təhsil materialları",
+      description: "Kitab, dəftər, çap",
+      group: "daily",
+    },
+    {
+      id: "student-daily-entertainment",
+      name: "Əyləncə",
+      description: "Cinema, Oyun, Dostlarla görüş",
+      group: "daily",
+    },
+    {
+      id: "student-daily-mobile",
+      name: "Mobil ve internet",
+      description: "Aylıq tariflər üzrə ödənişlər üçün",
+      group: "daily",
+    },
+    {
+      id: "student-monthly-rent",
+      name: "Kiraye ve kommunal",
+      description: "Kirayə, İşıq, qaz, su",
+      group: "monthly",
+    },
+    {
+      id: "student-monthly-education",
+      name: "Tehsil",
+      description: "Universitet ödənişi, dərs materialları üçün vəsait, kurslar",
+      group: "monthly",
+    },
+    {
+      id: "student-monthly-care",
+      name: "Geyim ve sexsi baxim",
+      description: "Bərbər, geyim",
+      group: "monthly",
+    },
+    {
+      id: "student-monthly-savings",
+      name: "Tibb sağlamlıq",
+      description: "Aptek və dərman",
+      group: "monthly",
+    },
+    {
+      id: "student-monthly-subscriptions",
+      name: "Abunelikler",
+      description: "Netflix, Spotify, ChatGPT Plus, Coursera",
+      group: "monthly",
+    },
+  ],
+  worker: [
+    {
+      id: "worker-daily-food",
+      name: "Qida ve ickiler",
+      description: "Nahar üçün vəsaitlər",
+      group: "daily",
+    },
+    {
+      id: "worker-daily-transport",
+      name: "Neqliyyat",
+      description: "İşə gediş gəliş və ya yanacaq",
+      group: "daily",
+    },
+    {
+      id: "worker-daily-entertainment",
+      name: "Eylence",
+      description: "İşdən sonra əyləncəli aktivitelər, Dostlarla görüş",
+      group: "daily",
+    },
+    {
+      id: "worker-daily-office",
+      name: "Ofis ehtiyaclari",
+      description: "Ofis ləvazimatları",
+      group: "daily",
+    },
+    {
+      id: "worker-monthly-home",
+      name: "Ev ve kommunal",
+      description: "Kiraye, kredit, işıq, qaz, su, internet",
+      group: "monthly",
+    },
+    {
+      id: "worker-monthly-health",
+      name: "Sağlamlıq ve idman",
+      description: "İdman zalı, vitamin, həkim",
+      group: "monthly",
+    },
+    {
+      id: "worker-monthly-growth",
+      name: "Təkmilləşmə",
+      description: "Kurslar, online dərsler, kitablar",
+      group: "monthly",
+    },
+    {
+      id: "worker-monthly-care",
+      name: "Geyim ve şəxsi baxım",
+      description: "İs geyimi, təmizlik",
+      group: "monthly",
+    },
+    {
+      id: "worker-monthly-savings",
+      name: "Qənaət ve investisiya",
+      description: "Aylıq yığım, depozit, kripto/səhm",
+      group: "monthly",
+    },
+    {
+      id: "worker-monthly-subscriptions",
+      name: "Abunəliklər",
+      description: "Proqram lisenziyalari, cloud storage, premium tətbiqlər",
+      group: "monthly",
+    },
+  ],
+  parent: [
+    {
+      id: "parent-daily-food",
+      name: "Qida ve ərzaq",
+      description: "Gündəlik alış-veriş, bazar, çörək",
+      group: "daily",
+    },
+    {
+      id: "parent-daily-transport",
+      name: "Nəqliyyat",
+      description: "Uşaqları məktəbə aparmaq, yanacaq",
+      group: "daily",
+    },
+    {
+      id: "parent-daily-kids",
+      name: "Uşaqlar üçün yemək xərcləri",
+      description: "Yemək, məktəb xərcləri, oyunlar",
+      group: "daily",
+    },
+    {
+      id: "parent-daily-homecare",
+      name: "Ev təmizliyi və ləvazimatlar",
+      description: "Yuyucu, sabun, tualet kağızı",
+      group: "daily",
+    },
+    {
+      id: "parent-monthly-home",
+      name: "Ev və kommunal",
+      description: "Kirayə, ipoteka, işıq, qaz, su, internet",
+      group: "monthly",
+    },
+    {
+      id: "parent-monthly-health",
+      name: "Ailə sağlamlığı",
+      description: "Aptek, hekim, sigorta",
+      group: "monthly",
+    },
+    {
+      id: "parent-monthly-education",
+      name: "Təhsil və uşaqlar",
+      description: "Məktəb ödənişləri, kurslar, geyim",
+      group: "monthly",
+    },
+    {
+      id: "parent-monthly-fun",
+      name: "Əyləncə və istirahətlər",
+      description: "Ailə gəzintiləri, tətil planı",
+      group: "monthly",
+    },
+    {
+      id: "parent-monthly-savings",
+      name: "Qənaət və ehtiyat fondu",
+      description: "Uşaqların gəncliyi, təcili vəziyyətlər",
+      group: "monthly",
+    },
+    {
+      id: "parent-monthly-services",
+      name: "Abunəliklər və xidmətlər",
+      description: "TV, internet paketləri, sığortalar",
+      group: "monthly",
+    },
+  ],
+};
