@@ -1,41 +1,57 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
-  View,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
+  View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
+import { apiRequest } from "./_utils/apiClient";
+import { ThemeConfig, useThemeConfig } from "./_constants/theme";
 
 export default function Signup() {
   const router = useRouter();
+  const themeConfig = useThemeConfig();
+  const styles = useMemo(() => createStyles(themeConfig), [themeConfig]);
+  const { palette } = themeConfig;
+  const inputBackground = themeConfig.inputBackground;
+  const surfaceOverlay = themeConfig.surfaceOverlay;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
 
   const handleSignup = async () => {
-    if (!email || !password || !confirm) {
+    const normalizedEmail = email.trim().toLowerCase();
+    const cleanedPassword = password.trim();
+    const cleanedConfirm = confirm.trim();
+
+    if (!normalizedEmail || !cleanedPassword || !cleanedConfirm) {
       alert("Zəhmət olmasa bütün xanaları doldurun.");
       return;
     }
-    if (password !== confirm) {
-      alert("Sifrələr fərqlidir.");
+
+    if (cleanedPassword !== cleanedConfirm) {
+      alert("Şifrələr uyğun gəlmir.");
       return;
     }
 
     try {
-      const res = await fetch("http://10.0.2.2:5000/api/auth/signup", {
+      const { response } = await apiRequest({
+        path: "/api/auth/signup",
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email: normalizedEmail,
+          password: cleanedPassword,
+        }),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
+      const data = await response.json();
+      if (!response.ok) {
         alert(data.message || "Qeydiyyat uğursuz oldu.");
         return;
       }
@@ -48,43 +64,65 @@ export default function Signup() {
   };
 
   return (
-    <LinearGradient colors={["#2575fc", "#6a11cb"]} style={styles.gradient}>
+    <LinearGradient
+      colors={themeConfig.gradient}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.gradient}
+    >
+      <View pointerEvents="none" style={styles.ambientTop} />
+      <View pointerEvents="none" style={styles.ambientBottom} />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.container}
       >
         <View style={styles.card}>
-          <Text style={styles.title}>Yeni hesab yarat</Text>
+          <Text style={styles.eyebrow}>Yeni hesab</Text>
+          <Text style={styles.title}>Maliyyə səyahətinə başla</Text>
+          <Text style={styles.subtitle}>
+            Hesabını oluştur, rahat qəhvə tonlarında idarə panelinə qoşul.
+          </Text>
 
-          <TextInput
-            placeholder="Email"
-            style={styles.input}
-            placeholderTextColor="#999"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-          <TextInput
-            placeholder="Şifrə"
-            style={styles.input}
-            placeholderTextColor="#999"
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-          />
-          <TextInput
-            placeholder="Şifrəni təkrar daxil et"
-            style={styles.input}
-            placeholderTextColor="#999"
-            secureTextEntry
-            value={confirm}
-            onChangeText={setConfirm}
-          />
+          <View style={styles.field}>
+            <Text style={styles.label}>Email</Text>
+            <TextInput
+              placeholder="ad@şirkət.az"
+              placeholderTextColor={palette.textMuted}
+              style={styles.input}
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+          </View>
+
+          <View style={styles.field}>
+            <Text style={styles.label}>Şifrə</Text>
+            <TextInput
+              placeholder="••••••••"
+              placeholderTextColor={palette.textMuted}
+              style={styles.input}
+              secureTextEntry
+              value={password}
+              onChangeText={setPassword}
+            />
+          </View>
+
+          <View style={styles.field}>
+            <Text style={styles.label}>Şifrəni təkrar et</Text>
+            <TextInput
+              placeholder="••••••••"
+              placeholderTextColor={palette.textMuted}
+              style={styles.input}
+              secureTextEntry
+              value={confirm}
+              onChangeText={setConfirm}
+            />
+          </View>
 
           <TouchableOpacity style={styles.button} onPress={handleSignup}>
             <LinearGradient
-              colors={["#6a11cb", "#2575fc"]}
+              colors={themeConfig.buttonGradient}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.buttonInner}
@@ -93,10 +131,13 @@ export default function Signup() {
             </LinearGradient>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => router.push("/Login")}>
-            <Text style={styles.link}>
-              Artıq hesabın var? <Text style={styles.linkHighlight}>Daxil ol</Text>
-            </Text>
+          <View style={styles.helperBlock}>
+            <Text style={styles.helperLine}>Şəxsi maliyyə planların bir addım uzaqda.</Text>
+          </View>
+
+          <TouchableOpacity onPress={() => router.push("/Login")} style={styles.loginRow}>
+            <Text style={styles.link}>Artıq hesabın var?</Text>
+            <Text style={styles.linkHighlight}>Daxil ol</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -104,42 +145,139 @@ export default function Signup() {
   );
 }
 
-const styles = StyleSheet.create({
-  gradient: { flex: 1 },
-  container: { flex: 1, justifyContent: "center", alignItems: "center" },
-  card: {
-    width: "85%",
-    backgroundColor: "rgba(255, 255, 255, 0.95)",
-    borderRadius: 25,
-    padding: 30,
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowOffset: { width: 0, height: 5 },
-    shadowRadius: 10,
-    elevation: 10,
-    alignItems: "center",
+const createStyles = (config: ThemeConfig) => {
+  const { palette } = config;
+  const surfaceOverlay = config.surfaceOverlay;
+  const inputBackground = config.inputBackground;
+  return StyleSheet.create({
+  gradient: {
+    flex: 1,
+    backgroundColor: palette.background,
   },
-  title: { fontSize: 24, fontWeight: "bold", color: "#333", marginBottom: 20 },
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 24,
+  },
+  ambientTop: {
+    position: "absolute",
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: "rgba(200, 144, 91, 0.2)",
+    top: -60,
+    left: -40,
+  },
+  ambientBottom: {
+    position: "absolute",
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: "rgba(255, 255, 255, 0.28)",
+    bottom: -70,
+    right: -60,
+  },
+  card: {
+    width: "88%",
+    backgroundColor: palette.card,
+    borderRadius: 28,
+    paddingHorizontal: 28,
+    paddingVertical: 36,
+    shadowColor: palette.shadow,
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 16 },
+    shadowRadius: 30,
+    elevation: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  eyebrow: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: palette.primaryDark,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: 12,
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: "700",
+    color: palette.text,
+    marginBottom: 10,
+  },
+  subtitle: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: palette.textMuted,
+    marginBottom: 30,
+  },
+  field: {
+    marginBottom: 18,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: palette.textMuted,
+    marginBottom: 6,
+  },
   input: {
-    width: "100%",
-    backgroundColor: "#f3f4f6",
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 15,
-    marginBottom: 15,
+    backgroundColor: inputBackground,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     fontSize: 16,
+    color: palette.text,
+    borderWidth: 1,
+    borderColor: palette.border,
+    shadowColor: "#c8a680",
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 6,
+    elevation: 2,
   },
   button: {
-    width: "100%",
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: "hidden",
+    elevation: 3,
+    marginBottom: 18,
   },
   buttonInner: {
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: 16,
     alignItems: "center",
   },
-  buttonText: { color: "#fff", fontWeight: "bold", fontSize: 17 },
-  link: { marginTop: 15, color: "#444", fontSize: 14 },
-  linkHighlight: { color: "#2575fc", fontWeight: "bold" },
-});
+  buttonText: {
+    color: "#fff",
+    fontSize: 17,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+  helperBlock: {
+    backgroundColor: surfaceOverlay,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  helperLine: {
+    color: palette.textMuted,
+    fontSize: 13,
+    textAlign: "center",
+  },
+  loginRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  link: {
+    color: palette.textMuted,
+    fontSize: 14,
+  },
+  linkHighlight: {
+    color: palette.primary,
+    fontSize: 14,
+    fontWeight: "700",
+    marginLeft: 6,
+  },
+  });
+};

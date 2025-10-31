@@ -1,4 +1,4 @@
-import { Category, UserType } from "../types/profile";
+import { Category, UserType } from "../_types/profile";
 
 export const CATEGORY_PRESETS: Record<UserType, Category[]> = {
   student: [

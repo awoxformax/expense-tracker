@@ -1,654 +1,526 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  Modal,
-  KeyboardAvoidingView,
-  Platform,
   Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useProfile } from "./context/ProfileContext";
-import { Category, CategoryGroup, Expense } from "./types/profile";
+import { useProfile } from "./_context/ProfileContext";
+import {
+  IncomeReminder,
+  IncomeFrequency,
+  IncomeSourceType,
+  LanguageCode,
+  StudentIncomePreference,
+} from "./_types/profile";
+import { ThemeConfig, useThemeConfig } from "./_constants/theme";
+import { formatCurrency, formatDate } from "./_utils/format";
 
-const userLabels = {
-  student: "Telebe",
-  worker: "Isci",
-  parent: "Aile bascisi",
+type TabKey = "home" | "income" | "settings";
+type WizardStep = 1 | 2 | 3;
+
+type WizardData = {
+  type: IncomeSourceType;
+  label: string;
+  windowStartDay: string;
+  windowEndDay: string;
+  customDate: string;
+  autoRenew: boolean;
+  confirmNow: boolean | null;
+  defaultAmount: string;
 };
+
+const TAB_ITEMS: { key: TabKey; icon: keyof typeof Feather.glyphMap; label: string }[] = [
+  { key: "home", icon: "home", label: "Ana" },
+  { key: "income", icon: "trending-up", label: "Gəlirlər" },
+  { key: "settings", icon: "settings", label: "Ayarlar" },
+];
+
+const SOURCE_OPTIONS: { type: IncomeSourceType; label: string; helper: string }[] = [
+  { type: "salary", label: "Maaş", helper: "Rəsmi iş gəliri" },
+  { type: "pension", label: "Təqaüd", helper: "Dövlət və ya fond ödənişi" },
+  { type: "freelance", label: "Frilanser", helper: "Layihə və müqavilə gəliri" },
+  { type: "other", label: "Digər", helper: "Başqa gəlir mənbəyi" },
+];
+
+const LANGUAGE_LABELS: Record<LanguageCode, string> = {
+  az: "Azərbaycan",
+  ru: "Русский",
+  en: "English",
+};
+
+const STUDENT_PREF_LABELS: Record<StudentIncomePreference, string> = {
+  working: "İşləyirəm",
+  stipend: "Təqaüd / digər",
+  mixed: "Hər ikisi",
+};
+
+const MAX_SALARY_DAY = 5;
+
+const clampDay = (value: number) => {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+  return Math.min(Math.max(Math.floor(value), 1), 28);
+};
+
+const ensureSalaryDay = (value: number) => Math.min(clampDay(value), MAX_SALARY_DAY);
+
+const toIsoDate = (date: Date) => {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  return copy.toISOString().slice(0, 10);
+};
+
+const buildMonthlyTrigger = (day: number) => {
+  const safeDay = ensureSalaryDay(day);
+  const today = new Date();
+  const candidate = new Date(today.getFullYear(), today.getMonth(), safeDay);
+  if (candidate <= today) {
+    candidate.setMonth(candidate.getMonth() + 1);
+  }
+  return toIsoDate(candidate);
+};
+
+const buildIrregularTrigger = (value: string) => {
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return toIsoDate(new Date());
+  }
+  return toIsoDate(parsed);
+};
+
+const nextTriggerFor = (
+  frequency: IncomeFrequency,
+  windowEndDay: number,
+  customDate: string,
+) => {
+  if (frequency === "monthly") {
+    return buildMonthlyTrigger(windowEndDay);
+  }
+  return buildIrregularTrigger(customDate);
+};
+
+const describeReminder = (reminder: IncomeReminder) => {
+  const next = formatDate(reminder.nextTrigger);
+  switch (reminder.frequency) {
+    case "monthly": {
+      const windowText =
+        typeof reminder.windowStartDay === "number" && typeof reminder.windowEndDay === "number"
+          ? ` (${reminder.windowStartDay}-${reminder.windowEndDay} arası)`
+          : "";
+      return `Hər ay${windowText} • növbəti: ${next}`;
+    }
+    case "weekly":
+      return `Həftəlik • növbəti: ${next}`;
+    default:
+      return `Qeyri-müntəzəm • növbəti: ${next}`;
+  }
+};
+
+const parseAmount = (raw: string) => {
+  if (!raw.trim()) {
+    return undefined;
+  }
+  const normalized = Number.parseFloat(raw.replace(",", "."));
+  if (Number.isNaN(normalized)) {
+    return undefined;
+  }
+  return parseFloat(normalized.toFixed(2));
+};
+
+const buildWizardDefaults = (preferredType: IncomeSourceType): WizardData => ({
+  type: preferredType,
+  label: SOURCE_OPTIONS.find((option) => option.type === preferredType)?.label ?? "Gəlir",
+  windowStartDay: "1",
+  windowEndDay: String(MAX_SALARY_DAY),
+  customDate: toIsoDate(new Date()),
+  autoRenew: preferredType === "salary" || preferredType === "pension",
+  confirmNow: null,
+  defaultAmount: "",
+});
 
 export default function Home() {
   const router = useRouter();
+  const themeConfig = useThemeConfig();
   const {
     userType,
-    categories,
+    profile,
     budget,
     setBudget,
     expenses,
     totalExpenses,
-    addExpense,
+    totalIncome,
+    incomes,
+    addIncome,
+    removeIncome,
+    incomeReminders,
+    addIncomeReminder,
+    confirmIncomeReminder,
+    skipIncomeReminder,
+    removeIncomeReminder,
+    balance,
+    currency,
+    setCurrency,
+    theme,
+    setTheme,
+    notificationsEnabled,
+    toggleNotifications,
+    updateProfile,
     resetProfile,
+    getPresetCategories,
+    setSelectedCategories,
+    exportProfileData,
+    language,
+    languageSelected,
+    setLanguage,
+    studentIncomePreference,
+    setStudentIncomePreference,
+    isHydrated,
   } = useProfile();
 
-  const [budgetInput, setBudgetInput] = useState("");
-  const [isEditingBudget, setIsEditingBudget] = useState(false);
-  const [expenseModalVisible, setExpenseModalVisible] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<Category | null>(null);
-  const [expenseTitle, setExpenseTitle] = useState("");
-  const [expenseAmount, setExpenseAmount] = useState("");
+  const styles = useMemo(() => createStyles(themeConfig), [themeConfig]);
+  const palette = themeConfig.palette;
+
+  const defaultSourceType = useMemo<IncomeSourceType>(() => {
+    if (userType === "student") {
+      if (studentIncomePreference === "stipend") {
+        return "pension";
+      }
+      if (studentIncomePreference === "mixed") {
+        return "salary";
+      }
+    }
+    return "salary";
+  }, [studentIncomePreference, userType]);
+
+  const [activeTab, setActiveTab] = useState<TabKey>("home");
+  const [budgetInput, setBudgetInput] = useState(budget !== null ? String(budget) : "");
+  const [incomeModalVisible, setIncomeModalVisible] = useState(false);
+  const [incomeSource, setIncomeSource] = useState("");
+  const [incomeAmount, setIncomeAmount] = useState("");
+  const [incomeDate, setIncomeDate] = useState(toIsoDate(new Date()));
+  const [incomeWizardVisible, setIncomeWizardVisible] = useState(false);
+  const [wizardStep, setWizardStep] = useState<WizardStep>(1);
+  const [wizardData, setWizardData] = useState<WizardData>(() => buildWizardDefaults(defaultSourceType));
+  const [reminderConfirmVisible, setReminderConfirmVisible] = useState(false);
+  const [reminderSkipVisible, setReminderSkipVisible] = useState(false);
+  const [reminderToProcess, setReminderToProcess] = useState<IncomeReminder | null>(null);
+  const [processAmount, setProcessAmount] = useState("");
+  const [processDate, setProcessDate] = useState(toIsoDate(new Date()));
+  const [skipDate, setSkipDate] = useState(toIsoDate(new Date()));
+  const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    firstName: profile.firstName,
+    lastName: profile.lastName,
+    birthDate: profile.birthDate ?? "",
+  });
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+    if (!languageSelected) {
+      router.replace("/LanguageSelect");
+      return;
+    }
+    if (!userType) {
+      router.replace("/UserTypeSelect");
+    }
+  }, [isHydrated, languageSelected, userType, router]);
 
   useEffect(() => {
     if (!userType) {
-      router.replace("/UserTypeSelect");
       return;
     }
-    setBudgetInput(budget !== null ? budget.toString() : "");
-    setIsEditingBudget(budget === null);
-  }, [userType, budget, router]);
+    const preset = getPresetCategories(userType);
+    setSelectedCategories((prev) => (prev.length ? prev : preset));
+  }, [userType, getPresetCategories, setSelectedCategories]);
 
-  if (!userType) {
-    return null;
-  }
+  useEffect(() => {
+    setBudgetInput(budget !== null ? String(budget) : "");
+  }, [budget]);
 
-  const remainingBudget =
-    budget !== null ? parseFloat((budget - totalExpenses).toFixed(2)) : 0;
+  useEffect(() => {
+    if (profileModalVisible) {
+      setProfileForm({
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        birthDate: profile.birthDate ?? "",
+      });
+    }
+  }, [profileModalVisible, profile]);
 
-  const groupedCategories = useMemo(() => {
-    return {
-      daily: categories.filter((item) => item.group === "daily"),
-      monthly: categories.filter((item) => item.group === "monthly"),
-    };
-  }, [categories]);
+  useEffect(() => {
+    setWizardData(buildWizardDefaults(defaultSourceType));
+    setWizardStep(1);
+  }, [defaultSourceType, incomeWizardVisible]);
 
-  const expensesByCategory = useMemo(() => {
-    const map = new Map<string, { total: number; items: Expense[] }>();
-    categories.forEach((category) => {
-      map.set(category.id, { total: 0, items: [] });
-    });
-    expenses.forEach((expense) => {
-      const entry = map.get(expense.categoryId);
-      if (entry) {
-        entry.total += expense.amount;
-        entry.items.push(expense);
+  const sortedIncomes = useMemo(
+    () =>
+      [...incomes].sort(
+        (a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime(),
+      ),
+    [incomes],
+  );
+
+  const lastIncome = sortedIncomes.length ? sortedIncomes[0] : null;
+
+  const nextReminder = useMemo(() => {
+    let earliest: IncomeReminder | null = null;
+    incomeReminders.forEach((reminder) => {
+      const time = new Date(`${reminder.nextTrigger}T00:00:00`).getTime();
+      if (Number.isNaN(time)) {
+        return;
+      }
+      if (!earliest) {
+        earliest = reminder;
+        return;
+      }
+      const currentTime = new Date(`${earliest.nextTrigger}T00:00:00`).getTime();
+      if (Number.isNaN(currentTime) || time < currentTime) {
+        earliest = reminder;
       }
     });
-    return map;
-  }, [categories, expenses]);
+    return earliest;
+  }, [incomeReminders]);
+
+  const pendingAutoReminders = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const day = now.getDate();
+
+    return incomeReminders.filter((reminder) => {
+      if (!reminder.autoRenew) {
+        return false;
+      }
+
+      const alreadyLogged = incomes.some((income) => {
+        if (income.reminderId !== reminder.id) {
+          return false;
+        }
+        const incomeDateObj = new Date(income.receivedAt);
+        return incomeDateObj.getFullYear() === year && incomeDateObj.getMonth() === month;
+      });
+
+      if (alreadyLogged) {
+        return false;
+      }
+
+      if (reminder.frequency === "monthly") {
+        const start =
+          reminder.windowStartDay ??
+          Math.max(1, (reminder.dayOfMonth ?? MAX_SALARY_DAY) - 2);
+        const end = reminder.windowEndDay ?? reminder.dayOfMonth ?? MAX_SALARY_DAY;
+        return day >= start && day <= end;
+      }
+
+      if (reminder.frequency === "irregular") {
+        const target = new Date(reminder.nextTrigger);
+        return (
+          target.getFullYear() === year &&
+          target.getMonth() === month &&
+          target.getDate() === day
+        );
+      }
+
+      return false;
+    });
+  }, [incomeReminders, incomes]);
 
   const handleSaveBudget = () => {
-    const parsed = parseFloat(budgetInput.replace(",", "."));
-    if (Number.isNaN(parsed) || parsed <= 0) {
-      Alert.alert("Xəta", "Zəhmət olmasa düzgün büdcə daxil edin.");
+    const parsed = parseAmount(budgetInput);
+    if (typeof parsed !== "number" || parsed <= 0) {
+      Alert.alert("Xəta", "Zəhmət olmasa düzgün məbləğ daxil edin.");
       return;
     }
-    setBudget(parseFloat(parsed.toFixed(2)));
-    setIsEditingBudget(false);
+    setBudget(parsed);
+    setBudgetInput(String(parsed));
   };
 
-  const openExpenseModal = (category: Category) => {
-    setActiveCategory(category);
-    setExpenseTitle("");
-    setExpenseAmount("");
-    setExpenseModalVisible(true);
+  const handleShareProfile = async () => {
+    try {
+      const payload = await exportProfileData();
+      await Share.share({
+        title: "Expense Tracker profili",
+        message: payload,
+      });
+    } catch (error) {
+      Alert.alert("Xəta", "Məlumatlar paylaşıla bilmədi.");
+    }
   };
 
-  const handleAddExpense = () => {
-    if (!activeCategory) {
+  const openIncomeWizard = () => {
+    setWizardData(buildWizardDefaults(defaultSourceType));
+    setWizardStep(1);
+    setIncomeWizardVisible(true);
+  };
+
+  const handleWizardSourceSelect = (type: IncomeSourceType) => {
+    setWizardData((prev) => ({
+      ...prev,
+      type,
+      label:
+        type === "other"
+          ? prev.label
+          : SOURCE_OPTIONS.find((option) => option.type === type)?.label ?? prev.label,
+      autoRenew: type === "salary" || type === "pension" || prev.autoRenew,
+    }));
+  };
+
+  const handleWizardNext = () => {
+    if (wizardStep === 1) {
+      if (wizardData.type === "other" && !wizardData.label.trim()) {
+        Alert.alert("Xəta", "Zəhmət olmasa gəlir mənbəyinin adını yazın.");
+        return;
+      }
+      setWizardStep(2);
       return;
     }
-    const amount = parseFloat(expenseAmount.replace(",", "."));
-    if (!expenseTitle.trim() || Number.isNaN(amount) || amount <= 0) {
-      Alert.alert("Xəta", "Xərc səbəbi və məbləği düzgün daxil edin.");
+
+    if (wizardStep === 2) {
+      if (wizardData.type === "salary" || wizardData.type === "pension") {
+        const start = ensureSalaryDay(Number(wizardData.windowStartDay));
+        const end = ensureSalaryDay(Number(wizardData.windowEndDay));
+        if (Number.isNaN(start) || Number.isNaN(end)) {
+          Alert.alert("Xəta", "Tarix aralığını düzgün daxil edin.");
+          return;
+        }
+        if (start > end) {
+          Alert.alert("Xəta", "Başlanğıc günü bitiş günündən kiçik olmalıdır.");
+          return;
+        }
+      } else if (!wizardData.customDate.trim()) {
+        Alert.alert("Xəta", "Tarixi YYYY-MM-DD formatında qeyd edin.");
+        return;
+      }
+      setWizardStep(3);
       return;
     }
-    addExpense({
-      categoryId: activeCategory.id,
-      title: expenseTitle.trim(),
-      amount: parseFloat(amount.toFixed(2)),
+
+    handleCompleteWizard();
+  };
+
+  const handleWizardBack = () => {
+    if (wizardStep === 1) {
+      setIncomeWizardVisible(false);
+      return;
+    }
+    setWizardStep((prev) => (prev === 1 ? prev : ((prev - 1) as WizardStep)));
+  };
+
+  const handleCompleteWizard = () => {
+    const trimmedLabel = wizardData.label.trim();
+    const frequency: IncomeFrequency =
+      wizardData.type === "salary" || wizardData.type === "pension"
+        ? "monthly"
+        : "irregular";
+
+    let windowStartDay: number | undefined;
+    let windowEndDay: number | undefined;
+    let nextTrigger = "";
+
+    if (frequency === "monthly") {
+      windowStartDay = ensureSalaryDay(Number(wizardData.windowStartDay));
+      windowEndDay = ensureSalaryDay(Number(wizardData.windowEndDay));
+      nextTrigger = nextTriggerFor(frequency, windowEndDay, wizardData.customDate);
+    } else {
+      nextTrigger = nextTriggerFor(frequency, MAX_SALARY_DAY, wizardData.customDate);
+    }
+
+    const defaultAmountValue = parseAmount(wizardData.defaultAmount);
+
+    const reminder = addIncomeReminder({
+      sourceType: wizardData.type,
+      label:
+        trimmedLabel ||
+        SOURCE_OPTIONS.find((item) => item.type === wizardData.type)?.label ||
+        "Gəlir",
+      frequency,
+      dayOfMonth: frequency === "monthly" ? windowEndDay : undefined,
+      weekday: undefined,
+      nextTrigger,
+      autoAddOnConfirm: wizardData.autoRenew,
+      windowStartDay,
+      windowEndDay,
+      autoRenew: wizardData.autoRenew,
+      defaultAmount: defaultAmountValue,
+      remindHour: 9,
+      remindMinute: 0,
     });
-    setExpenseModalVisible(false);
-  };
 
-  const renderCategorySection = (group: CategoryGroup, data: Category[]) => {
-    if (!data.length) {
-      return null;
+    setIncomeWizardVisible(false);
+    setWizardStep(1);
+    setWizardData(buildWizardDefaults(defaultSourceType));
+
+    if (wizardData.confirmNow) {
+      setReminderToProcess(reminder);
+      setProcessAmount(
+        typeof reminder.defaultAmount === "number" ? String(reminder.defaultAmount) : "",
+      );
+      setProcessDate(reminder.nextTrigger);
+      setReminderConfirmVisible(true);
+    } else if (wizardData.confirmNow === false) {
+      Alert.alert("Qeyd edildi", "Bildiriş saxlanıldı. Gəliri daha sonra təsdiqləyə bilərsiniz.");
     }
-    const header =
-      group === "daily" ? "Gündəlik kateqoriyalar" : "Aylığ kateqoriyalar";
-    return (
-      <View key={group} style={styles.section}>
-        <Text style={styles.sectionTitle}>{header}</Text>
-        {data.map((category) => {
-          const entry = expensesByCategory.get(category.id);
-          const categoryTotal = entry ? entry.total : 0;
-          const categoryExpenses = entry ? entry.items : [];
-          return (
-            <View key={category.id} style={styles.categoryCard}>
-              <View style={styles.categoryHeader}>
-                <View>
-                  <Text style={styles.categoryName}>{category.name}</Text>
-                  <Text style={styles.categoryDescription}>
-                    {category.description}
-                  </Text>
-                </View>
-                <View style={styles.categoryTotal}>
-                  <Text style={styles.categoryTotalLabel}>Toplam</Text>
-                  <Text style={styles.categoryTotalAmount}>
-                    {categoryTotal.toFixed(2)} AZN
-                  </Text>
-                </View>
-              </View>
-              {categoryExpenses.length > 0 ? (
-                <View style={styles.expenseList}>
-                  {categoryExpenses.map((expense) => (
-                    <View key={expense.id} style={styles.expenseRow}>
-                      <Text style={styles.expenseName}>- {expense.title}</Text>
-                      <Text style={styles.expenseAmount}>
-                        {expense.amount.toFixed(2)} AZN
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              ) : (
-                <Text style={styles.emptyExpense}>Hələ xərc əlavə olunmayıb.</Text>
-              )}
-              <TouchableOpacity
-                style={styles.addExpenseButton}
-                onPress={() => openExpenseModal(category)}
-              >
-                <Text style={styles.addExpenseText}>
-                  + Bu kateqoriyaya xərc əlavə et
-                </Text>
-              </TouchableOpacity>
-            </View>
-          );
-        })}
-      </View>
-    );
   };
 
-  return (
-    <LinearGradient colors={["#2575fc", "#6a11cb"]} style={styles.gradient}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.greeting}>Xoş gəldin!</Text>
-          <Text style={styles.profileText}>
-            Seçdiyin profil: {userLabels[userType]}
-          </Text>
-        </View>
+  const handleAddIncomeManual = () => {
+    const amount = parseAmount(incomeAmount);
+    if (!incomeSource.trim() || typeof amount !== "number" || amount <= 0) {
+      Alert.alert("Xəta", "Gəlir mənbəyini və məbləği düzgün daxil edin.");
+      return;
+    }
+    const parsedDate = new Date(`${incomeDate}T00:00:00`);
+    if (Number.isNaN(parsedDate.getTime())) {
+      Alert.alert("Xəta", "Tarix formatı düzgün deyil (YYYY-MM-DD).");
+      return;
+    }
+    addIncome({
+      source: incomeSource.trim(),
+      amount,
+      receivedAt: parsedDate.toISOString(),
+    });
+    setIncomeModalVisible(false);
+  };
 
-        <View style={styles.actionsRow}>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => {
-              resetProfile();
-              router.replace("/UserTypeSelect");
-            }}
-          >
-            <Text style={styles.actionText}>Profil növünü dəyiş</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.actionButtonSecondary]}
-            onPress={() => router.push("/CategorySetup")}
-          >
-            <Text style={styles.actionText}>Kateqoriyaları düzəliş et</Text>
-          </TouchableOpacity>
-        </View>
+  const openConfirmReminder = (reminder: IncomeReminder) => {
+    setReminderToProcess(reminder);
+    setProcessAmount(
+      typeof reminder.defaultAmount === "number" ? String(reminder.defaultAmount) : "",
+    );
+    setProcessDate(reminder.nextTrigger);
+    setReminderConfirmVisible(true);
+  };
 
-        <View style={styles.budgetCard}>
-          <Text style={styles.budgetTitle}>Büdcə və xərclər</Text>
-          {isEditingBudget ? (
-            <>
-              <Text style={styles.budgetHint}>
-                Hazırki büdcəni daxil et ki, sərmayeni izləyə biləsən.
-              </Text>
-              <TextInput
-                style={styles.budgetInput}
-                value={budgetInput}
-                onChangeText={setBudgetInput}
-                placeholder="Meblegi yaz (AZN)"
-                placeholderTextColor="#94a3b8"
-                keyboardType="decimal-pad"
-              />
-              <View style={styles.budgetActions}>
-                <TouchableOpacity
-                  style={[styles.budgetButton, styles.budgetSaveButton]}
-                  onPress={handleSaveBudget}
-                >
-                  <Text style={styles.budgetSaveText}>Büdcəni saxla</Text>
-                </TouchableOpacity>
-                {budget !== null && (
-                  <TouchableOpacity
-                    style={[styles.budgetButton, styles.budgetCancelButton]}
-                    onPress={() => {
-                      setBudgetInput(budget.toString());
-                      setIsEditingBudget(false);
-                    }}
-                  >
-                    <Text style={styles.budgetCancelText}>Ləğv et</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </>
-          ) : (
-            <>
-              <View style={styles.budgetSummaryRow}>
-                <View style={styles.summaryItem}>
-                  <Text style={styles.summaryLabel}>Ümumi büdcə</Text>
-                  <Text style={styles.summaryValue}>
-                    {budget?.toFixed(2)} AZN
-                  </Text>
-                </View>
-                <View style={styles.summaryItem}>
-                  <Text style={styles.summaryLabel}>Xərc olunan</Text>
-                  <Text style={styles.summaryValue}>
-                    {totalExpenses.toFixed(2)} AZN
-                  </Text>
-                </View>
-                <View style={styles.summaryItem}>
-                  <Text style={styles.summaryLabel}>Qalıq</Text>
-                  <Text
-                    style={[
-                      styles.summaryValue,
-                      remainingBudget < 0 && styles.overspent,
-                    ]}
-                  >
-                    {remainingBudget.toFixed(2)} AZN
-                  </Text>
-                </View>
-              </View>
-              <TouchableOpacity
-                style={styles.editBudgetButton}
-                onPress={() => {
-                  setBudgetInput(budget !== null ? budget.toString() : "");
-                  setIsEditingBudget(true);
-                }}
-              >
-                <Text style={styles.editBudgetText}>Büdcəni yenilə</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
+  const handleConfirmReminderAction = () => {
+    if (!reminderToProcess) {
+      return;
+    }
+    const amountValue = parseAmount(processAmount);
+    if (typeof amountValue !== "number" || amountValue <= 0) {
+      Alert.alert("Xəta", "Məbləğ düzgün deyil.");
+      return;
+    }
+    const parsedDate = new Date(`${processDate}T00:00:00`);
+    אם (Number.isNaN(parsedDate.getTime())) {
+      Alert.alert("Xəta", "Tarix formatı düzgün deyil.");
+      return;
+    }
+    confirmIncomeReminder(reminderToProcess.id, amountValue, parsedDate.toISOString());
+    setReminderConfirmVisible(false);
+    setReminderToProcess(null);
+  };
 
-        {categories.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>Kateqoriya seçməmisən</Text>
-            <Text style={styles.emptySubtitle}>
-              Xərcləri izləmək Üçün əvvəlcə hansı bölmələrdən istifadə edəcəyini 
-              seç.
-            </Text>
-            <TouchableOpacity
-              style={styles.emptyButton}
-              onPress={() => router.push("/CategorySetup")}
-            >
-              <Text style={styles.emptyButtonText}>Kateqoriya seç</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <>
-            {renderCategorySection("daily", groupedCategories.daily)}
-            {renderCategorySection("monthly", groupedCategories.monthly)}
-          </>
-        )}
-      </ScrollView>
-
-      <Modal
-        visible={expenseModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setExpenseModalVisible(false)}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.modalContainer}
-        >
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Yeni xərc</Text>
-            {activeCategory && (
-              <Text style={styles.modalSubtitle}>{activeCategory.name}</Text>
-            )}
-            <TextInput
-              style={styles.modalInput}
-              placeholder="Xərc adı"
-              placeholderTextColor="#475569"
-              value={expenseTitle}
-              onChangeText={setExpenseTitle}
-            />
-            <TextInput
-              style={styles.modalInput}
-              placeholder="Məbləğ (AZN)"
-              placeholderTextColor="#475569"
-              keyboardType="decimal-pad"
-              value={expenseAmount}
-              onChangeText={setExpenseAmount}
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalCancel]}
-                onPress={() => setExpenseModalVisible(false)}
-              >
-                <Text style={styles.modalCancelText}>Ləğv et</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalConfirm]}
-                onPress={handleAddExpense}
-              >
-                <Text style={styles.modalConfirmText}>Əlavə et</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-    </LinearGradient>
-  );
-}
-
-const styles = StyleSheet.create({
-  gradient: {
-    flex: 1,
-  },
-  content: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-  },
-  header: {
-    marginTop: 70,
-    alignItems: "center",
-  },
-  greeting: {
-    color: "#fff",
-    fontSize: 28,
-    fontWeight: "bold",
-  },
-  profileText: {
-    color: "rgba(255,255,255,0.9)",
-    fontSize: 16,
-    marginTop: 4,
-  },
-  actionsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 24,
-  },
-  actionButton: {
-    flex: 1,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    paddingVertical: 12,
-    borderRadius: 14,
-    marginRight: 10,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.3)",
-  },
-  actionButtonSecondary: {
-    marginRight: 0,
-    marginLeft: 10,
-  },
-  actionText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-  budgetCard: {
-    marginTop: 24,
-    backgroundColor: "rgba(255, 255, 255, 0.92)",
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 8,
-  },
-  budgetTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1f2937",
-  },
-  budgetHint: {
-    color: "#475569",
-    marginTop: 8,
-    fontSize: 14,
-  },
-  budgetInput: {
-    marginTop: 16,
-    backgroundColor: "#f1f5f9",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: "#0f172a",
-  },
-  budgetActions: {
-    flexDirection: "row",
-    marginTop: 18,
-    justifyContent: "space-between",
-  },
-  budgetButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  budgetSaveButton: {
-    backgroundColor: "#2563eb",
-    marginRight: 10,
-  },
-  budgetSaveText: {
-    color: "#fff",
-    fontWeight: "700",
-  },
-  budgetCancelButton: {
-    backgroundColor: "#e2e8f0",
-    marginLeft: 10,
-  },
-  budgetCancelText: {
-    color: "#1e293b",
-    fontWeight: "600",
-  },
-  budgetSummaryRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 16,
-  },
-  summaryItem: {
-    flex: 1,
-    alignItems: "center",
-  },
-  summaryLabel: {
-    color: "#475569",
-    fontSize: 13,
-  },
-  summaryValue: {
-    color: "#1e293b",
-    fontSize: 18,
-    fontWeight: "700",
-    marginTop: 6,
-  },
-  overspent: {
-    color: "#dc2626",
-  },
-  editBudgetButton: {
-    marginTop: 20,
-    alignSelf: "center",
-    paddingHorizontal: 22,
-    paddingVertical: 10,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#2563eb",
-  },
-  editBudgetText: {
-    color: "#2563eb",
-    fontWeight: "700",
-  },
-  emptyState: {
-    marginTop: 30,
-    backgroundColor: "rgba(255,255,255,0.15)",
-    borderRadius: 20,
-    padding: 25,
-    alignItems: "center",
-  },
-  emptyTitle: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "700",
-  },
-  emptySubtitle: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: 14,
-    textAlign: "center",
-    marginTop: 10,
-  },
-  emptyButton: {
-    marginTop: 18,
-    backgroundColor: "#fff",
-    paddingHorizontal: 30,
-    paddingVertical: 12,
-    borderRadius: 24,
-  },
-  emptyButtonText: {
-    color: "#2563eb",
-    fontWeight: "700",
-  },
-  section: {
-    marginTop: 28,
-  },
-  sectionTitle: {
-    color: "#fff",
-    fontSize: 19,
-    fontWeight: "700",
-    marginBottom: 14,
-  },
-  categoryCard: {
-    backgroundColor: "rgba(255,255,255,0.92)",
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 16,
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 6,
-  },
-  categoryHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  categoryName: {
-    color: "#1e293b",
-    fontSize: 17,
-    fontWeight: "700",
-  },
-  categoryDescription: {
-    color: "#475569",
-    marginTop: 4,
-    maxWidth: 220,
-  },
-  categoryTotal: {
-    alignItems: "flex-end",
-  },
-  categoryTotalLabel: {
-    color: "#64748b",
-    fontSize: 12,
-  },
-  categoryTotalAmount: {
-    color: "#1d4ed8",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  expenseList: {
-    borderTopWidth: 1,
-    borderTopColor: "#e2e8f0",
-    paddingTop: 12,
-  },
-  expenseRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  expenseName: {
-    color: "#334155",
-    fontSize: 14,
-  },
-  expenseAmount: {
-    color: "#2563eb",
-    fontWeight: "600",
-  },
-  emptyExpense: {
-    color: "#64748b",
-    fontStyle: "italic",
-    borderTopWidth: 1,
-    borderTopColor: "#e2e8f0",
-    paddingTop: 12,
-  },
-  addExpenseButton: {
-    marginTop: 14,
-    backgroundColor: "#2563eb",
-    paddingVertical: 10,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  addExpenseText: {
-    color: "#fff",
-    fontWeight: "700",
-  },
-  modalContainer: {
-    flex: 1,
-    justifyContent: "center",
-    backgroundColor: "rgba(15,23,42,0.45)",
-    paddingHorizontal: 20,
-  },
-  modalContent: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 24,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#1e293b",
-  },
-  modalSubtitle: {
-    color: "#475569",
-    marginTop: 4,
-    marginBottom: 16,
-  },
-  modalInput: {
-    backgroundColor: "#f1f5f9",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 12,
-    color: "#0f172a",
-  },
-  modalActions: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 10,
-  },
-  modalButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  modalCancel: {
-    backgroundColor: "#e2e8f0",
-    marginRight: 10,
-  },
-  modalCancelText: {
-    color: "#1e293b",
-    fontWeight: "600",
-  },
-  modalConfirm: {
-    backgroundColor: "#2563eb",
-    marginLeft: 10,
-  },
-  modalConfirmText: {
-    color: "#fff",
-    fontWeight: "700",
-  },
-});
